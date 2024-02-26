@@ -1,0 +1,10 @@
+training_params:
+  num_epochs: 500
+  Na: 9
+  Nf: 1
+  device: cuda
+  model_name: axial_fusion_transformer
+  loss_function: DiceLoss()
+  num_classes: 5
+
+
