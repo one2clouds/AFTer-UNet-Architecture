@@ -6,6 +6,9 @@ import torch
 import glob
 import os
 import torchio as tio 
+import monai 
+
+from monai.transforms import Compose, Spacing
 
 
 
@@ -16,6 +19,9 @@ class MyDataset(Dataset):
         self.scaler = MinMaxScaler()
         self.transform = tio.CropOrPad((128,128,128))
         self.num_classes = num_classes
+        self.transforms = Compose([
+            Spacing(pixdim=(1.0,1.0,1.0), mode=('bilinear', 'nearest'))
+            ])
         
     def __len__(self):
         return len(self.image_list)
@@ -34,7 +40,11 @@ class MyDataset(Dataset):
         # print(mask.shape) # torch.Size([512, 512, 179, 4])
         mask = mask.permute(3,0,1,2)
 
-        # print(mask.shape)torch.Size([512, 512, 179, 4])
+        image = self.transforms(image)
+        mask = self.transforms(mask)
+
+        # print(image.shape) # torch.Size([512, 512, 162])
+        # print(mask.shape) # torch.Size([5, 512, 512, 162])
 
         # print(image.unsqueeze(dim=0).shape)
         # print(mask.shape)
@@ -47,7 +57,7 @@ class MyDataset(Dataset):
         return image_and_mask
         
 
-def get_from_loader(image_location, mask_location, num_classes):
+def get_from_loader(image_location, mask_location, num_classes, batch_size):
     my_dataset = MyDataset(image_location, mask_location, num_classes)
 
     train_ratio = 0.8
@@ -59,8 +69,8 @@ def get_from_loader(image_location, mask_location, num_classes):
 
     train_dataset, test_dataset = random_split(my_dataset, [num_train_samples , num_test_samples])
     
-    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_dataloader, test_dataloader
 
