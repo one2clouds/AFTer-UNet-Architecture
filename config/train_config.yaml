@@ -6,5 +6,8 @@ training_params:
   model_name: axial_fusion_transformer
   loss_function: DiceLoss()
   num_classes: 5
+  wandb_key: 3c5761d8a73c56ab35a29b208a4db7e4912136c1
+  batch_size: 1
+  lr: 0.0001
 
 
