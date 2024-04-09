@@ -72,9 +72,6 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
             iou_metric(output, mask.squeeze(dim=0))
 
-            print(iou_metric)
-            print(dice_metric)
-
             dice_score_train = dice_metric.aggregate().item()
             jaccard_score_train = iou_metric.aggregate().item()
 
@@ -103,9 +100,6 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
                 dice_metric(output, mask.squeeze(dim=0)) # only passing batchC, H,W,D to the metric 
                 iou_metric(output, mask.squeeze(dim=0)) # only passing batch, C, H,W,D to the metric 
-
-                print(dice_metric)
-                print(iou_metric)
 
                 dice_score_test = dice_metric.aggregate().item()
                 jaccard_score_test = iou_metric.aggregate().item()
