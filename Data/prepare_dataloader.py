@@ -24,7 +24,7 @@ class MyDataset(Dataset):
             ])
         
     def __len__(self):
-        return 10 #len(self.image_list)
+        return 2 #len(self.image_list)
 
     def __getitem__(self, idx):
 
@@ -61,7 +61,7 @@ class MyDataset(Dataset):
 def get_from_loader(image_location, mask_location, num_classes, batch_size):
     my_dataset = MyDataset(image_location, mask_location, num_classes)
 
-    train_ratio = 0.8
+    train_ratio = 0.5 #0.8 # TODO
     test_ratio = 1.0 - train_ratio
 
     num_samples = len(my_dataset)
@@ -70,7 +70,7 @@ def get_from_loader(image_location, mask_location, num_classes, batch_size):
 
     train_dataset, test_dataset = random_split(my_dataset, [num_train_samples , num_test_samples])
     
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_dataloader, test_dataloader

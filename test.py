@@ -37,6 +37,8 @@ with open('./config/train_config.yaml', 'r') as config_file:
         Nf = config_params["training_params"]["Nf"]
 
         optimizer = optim.Adam()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         model = axial_fusion_transformer(Na, Nf, config_params["training_params"]["num_classes"]).to(device)
         checkpoint_path = 'model.pth'
         if os.path.exists(checkpoint_path):
@@ -48,6 +50,7 @@ with open('./config/train_config.yaml', 'r') as config_file:
             print("Model not found!!")
 
         model.eval()
+        
         i=0
         for image_and_mask in list(test_dataloader)[:10]:
             fig, ax = plt.subplots(1,3)
