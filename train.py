@@ -68,9 +68,12 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             train_loss = loss_function(output, mask.squeeze(dim=0))
             train_loss.backward()
             
-            dice_score_train = dice_metric(output, mask.squeeze(dim=0))
+            dice_metric(output, mask.squeeze(dim=0))
 
-            jaccard_score_train_monai = iou_metric(output, mask.squeeze(dim=0))
+            iou_metric(output, mask.squeeze(dim=0))
+
+            dice_score_train = dice_metric.aggregate().item()
+            jaccard_score_train = iou_metric.aggregate().item()
 
             # print(jaccard_score_train_monai.shape)  #torch.Size([1, 5])
             # print(dice_score_train.shape)  #torch.Size([1, 5])
@@ -80,6 +83,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             # print(dice_score_train) # metatensor([[0.9095]])
 
         dice_metric.reset()
+        iou_metric.reset()
         
         model.eval()
         with torch.no_grad():
@@ -94,13 +98,17 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 # print(dice_score_test) # metatensor([[0.9115]])
                 # print(output.shape) # torch.Size([5, 128, 128, 128])
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
-                dice_score_test = dice_metric(output, mask.squeeze(dim=0)) # only passing batchC, H,W,D to the metric 
-                jaccard_score_test_monai = iou_metric(output, mask.squeeze(dim=0)) # only passing batch, C, H,W,D to the metric 
+                dice_metric(output, mask.squeeze(dim=0)) # only passing batchC, H,W,D to the metric 
+                iou_metric(output, mask.squeeze(dim=0)) # only passing batch, C, H,W,D to the metric 
+
+                dice_score_test = dice_metric.aggregate().item()
+                jaccard_score_test = iou_metric.aggregate().item()
 
                 # print(dice_score_test.shape) #torch.Size([1, 5])
                 # print(jaccard_score_test_monai.shape) #torch.Size([1, 5])
 
             dice_metric.reset()
+            iou_metric.reset()
 
 
             # TAKING FIRST 4 IMAGES OF TEST AND PASSING IT TO WANDB FOR VISUALIZATION AFTER EVERY EPOCH
@@ -139,8 +147,8 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                    "test_loss":test_loss.item(),
                    "train_dice":dice_score_train.mean().item(),
                    "test_dice":dice_score_test.mean().item(), 
-                   "train_jaccard_monai":jaccard_score_train_monai.mean().item(),
-                   "test_jaccard_monai":jaccard_score_test_monai.mean().item(),
+                   "train_jaccard_monai":jaccard_score_train.mean().item(),
+                   "test_jaccard_monai":jaccard_score_test.mean().item(),
                    "image": [wandb.Image(img) for img in images]
                    })    
         
@@ -149,8 +157,8 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             f'Test Loss: {test_loss.item():.4f}, '
             f'Train Dice Score: {dice_score_train.mean().item():.4f}, '
             f'Test Dice Score: {dice_score_test.mean().item():.4f}, '
-            f'Train Jaccard Monai: {jaccard_score_train_monai.mean().item():.4f}, '
-            f'Test Jaccard Monai: {jaccard_score_test_monai.mean().item():.4f}, ')
+            f'Train Jaccard Monai: {jaccard_score_train.mean().item():.4f}, '
+            f'Test Jaccard Monai: {jaccard_score_test.mean().item():.4f}, ')
     
     return model,num_epochs,optimizer, train_loss
 
