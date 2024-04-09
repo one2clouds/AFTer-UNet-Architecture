@@ -33,11 +33,12 @@ class MyDataset(Dataset):
         image = torch.tensor(image, dtype=torch.float64)
     
         mask = nib.load(self.mask_list[idx]).get_fdata()
-        mask = self.scaler.fit_transform(mask.reshape(-1, mask.shape[-1])).reshape(mask.shape)
+        # print(torch.tensor(mask).unique()) # tensor([0., 1., 2., 3., 4.], dtype=torch.float64)
         mask = torch.tensor(mask, dtype=torch.int64)
 
+
         mask = torch.nn.functional.one_hot(mask, self.num_classes)
-        # print(mask.shape) # torch.Size([512, 512, 179, 4])
+        # print(mask.shape) # torch.Size([512, 512, 179, 5])
         mask = mask.permute(3,0,1,2)
 
         image = self.transforms(image)
