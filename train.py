@@ -72,6 +72,9 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
             iou_metric(output, mask.squeeze(dim=0))
 
+            print(iou_metric)
+            print(dice_metric)
+
             dice_score_train = dice_metric.aggregate().item()
             jaccard_score_train = iou_metric.aggregate().item()
 
@@ -100,6 +103,9 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
                 dice_metric(output, mask.squeeze(dim=0)) # only passing batchC, H,W,D to the metric 
                 iou_metric(output, mask.squeeze(dim=0)) # only passing batch, C, H,W,D to the metric 
+
+                print(dice_metric)
+                print(iou_metric)
 
                 dice_score_test = dice_metric.aggregate().item()
                 jaccard_score_test = iou_metric.aggregate().item()
@@ -145,25 +151,22 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
         wandb.log({"train_loss":train_loss.item(),
                    "test_loss":test_loss.item(),
-                   "train_dice":dice_score_train.mean().item(),
-                   "test_dice":dice_score_test.mean().item(), 
-                   "train_jaccard_monai":jaccard_score_train.mean().item(),
-                   "test_jaccard_monai":jaccard_score_test.mean().item(),
+                   "train_dice":dice_score_train,
+                   "test_dice":dice_score_test, 
+                   "train_jaccard":jaccard_score_train,
+                   "test_jaccard":jaccard_score_test,
                    "image": [wandb.Image(img) for img in images]
                    })    
         
         print(f'Epoch [{epoch + 1}/{num_epochs}], '
             f'Train Loss: {train_loss.item():.4f}, '
             f'Test Loss: {test_loss.item():.4f}, '
-            f'Train Dice Score: {dice_score_train.mean().item():.4f}, '
-            f'Test Dice Score: {dice_score_test.mean().item():.4f}, '
-            f'Train Jaccard Monai: {jaccard_score_train.mean().item():.4f}, '
-            f'Test Jaccard Monai: {jaccard_score_test.mean().item():.4f}, ')
+            f'Train Dice Score: {dice_score_train:.4f}, '
+            f'Test Dice Score: {dice_score_test:.4f}, '
+            f'Train Jaccard: {jaccard_score_train:.4f}, '
+            f'Test Jaccard: {jaccard_score_test:.4f}, ')
     
     return model,num_epochs,optimizer, train_loss
-
-
-
 
 
 

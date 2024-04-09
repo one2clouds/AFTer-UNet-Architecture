@@ -24,7 +24,7 @@ class MyDataset(Dataset):
             ])
         
     def __len__(self):
-        return 2 #len(self.image_list)
+        return 10 #len(self.image_list)
 
     def __getitem__(self, idx):
 
@@ -61,7 +61,7 @@ class MyDataset(Dataset):
 def get_from_loader(image_location, mask_location, num_classes, batch_size):
     my_dataset = MyDataset(image_location, mask_location, num_classes)
 
-    train_ratio = 0.5 #0.8 # TODO
+    train_ratio = 0.8
     test_ratio = 1.0 - train_ratio
 
     num_samples = len(my_dataset)
