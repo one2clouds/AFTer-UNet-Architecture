@@ -24,7 +24,7 @@ class MyDataset(Dataset):
             ])
         
     def __len__(self):
-        return len(self.image_list)
+        return 10 #len(self.image_list)
 
     def __getitem__(self, idx):
 

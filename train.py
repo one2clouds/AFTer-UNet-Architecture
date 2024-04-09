@@ -34,6 +34,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
     if config_params["training_params"]["model_name"] == "axial_fusion_transformer":
         model = axial_fusion_transformer(Na,Nf, num_classes).to(device)
+    
     loss_function = DiceLoss(include_background=True, reduction="mean")
     # dice metric vanne use garda nan values aayo
     # dice_metric = DiceMetric(include_background=True, reduction="mean")
@@ -124,7 +125,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
             # TAKING FIRST 4 IMAGES OF TEST AND PASSING IT TO WANDB FOR VISUALIZATION AFTER EVERY EPOCH
 
-            for img_and_mask in list(train_dataloader)[:4]: 
+            for img_and_mask in list(test_dataloader)[:4]: 
                 image = img_and_mask['_3d_image']['data'].float().to(device)
                 mask = img_and_mask['_3d_mask']['data'].float().to(device)
                 output = model(image) 
@@ -203,7 +204,7 @@ if __name__ =='__main__':
         }
     )
 # check for voxel shape and load in csv format
-    # check_dataset(image_location, mask_location)
+    check_dataset(image_location, mask_location)
 
     # print(config_params["training_params"]["num_classes"]) #5
 
@@ -211,47 +212,4 @@ if __name__ =='__main__':
     train_dataloader, test_dataloader = get_from_loader(image_location, mask_location, config_params["training_params"]["num_classes"], wandb.config['batch_size'])                                   
     
     model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, config_params["training_params"]["num_classes"], wandb)
-
-    # Na = config_params["training_params"]["Na"]
-    # Nf = config_params["training_params"]["Nf"]
-
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # model = axial_fusion_transformer(Na,Nf, config_params["training_params"]["num_classes"]).to(device)
-    
-    # model.load_state_dict(torch.load('model.pth')['model_state_dict'])
-    # model.eval()
-
-    # i=0
-    # for image_and_mask in list(test_dataloader)[:10]:
-    #     fig, ax = plt.subplots(1,3)
-    #     image = image_and_mask['_3d_image']['data'].float().to(device)
-    #     mask = image_and_mask['_3d_mask']['data'].float().to(device)
-    #     output = model(image)
-
-    #     image = image.squeeze()
-    #     #         print(mask.shape)
-    #     mask = mask.squeeze(dim=0).argmax(0)
-    #     output = output.squeeze(dim=0).argmax(0)
-    #     #         print(image.shape) # torch.Size([1, 1, 128, 128, 128])
-    #     #         print(image.max()) # tensor(1., device='cuda:0')
-    #     #         print(image.min()) # tensor(0., device='cuda:0')
-    #     #         print(mask.max()) # tensor(1., device='cuda:0')
-    #     #         print(mask.min()) # tensor(0., device='cuda:0')
-    #     #         print(output.max()) #tensor(0.9952, device='cuda:0')
-    #     #         print(output.min()) # tensor(6.8929e-08, device='cuda:0')
-    #     #         print(output.shape) # torch.Size([4, 128, 128, 128])
-
-    #     # n_slice = 55
-    #     for j in range(10):
-    #         n_slice = int(random.random() * 128)
-    #         ax[0].imshow(image[:,:,n_slice].cpu())
-    #         ax[0].set_title('Image of SegTHOR CT Scan')
-    #         ax[1].imshow(mask[:,:,n_slice].cpu())
-    #         ax[1].set_title('Original Mask')
-    #         ax[2].imshow(output[:,:,n_slice].cpu() > 0.5)
-    #         ax[2].set_title('Predicted Mask')
-
-    #         fig.savefig(f'images/full_figure{i} {j} {n_slice}.png')
-    #     i += 1
 
