@@ -1,5 +1,5 @@
 training_params:
-  num_epochs: 500
+  num_epochs: 1000
   Na: 9
   Nf: 1
   device: cuda

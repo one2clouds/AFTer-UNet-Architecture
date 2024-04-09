@@ -112,7 +112,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
 
             # TAKING FIRST 4 IMAGES OF TEST AND PASSING IT TO WANDB FOR VISUALIZATION AFTER EVERY EPOCH
-            for img_and_mask in list(train_dataloader): 
+            for img_and_mask in list(test_dataloader): 
                 image = img_and_mask['_3d_image']['data'].float().to(device)
                 mask = img_and_mask['_3d_mask']['data'].float().to(device)
                 output = model(image) 
