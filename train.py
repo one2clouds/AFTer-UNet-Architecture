@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from check_size_and_voxels.check_dataset import check_dataset
 import wandb
 from monai.losses import DiceLoss
-from monai.metrics import DiceMetric, MeanIoU
+from monai.metrics import DiceMetric, MeanIoU, LossMetric
 
 import warnings
 
@@ -33,10 +33,12 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         model = axial_fusion_transformer(Na,Nf, num_classes).to(device)
     
     loss_function = DiceLoss(include_background=True, reduction="mean")
-    # dice metric vanne use garda nan values aayo
-    # dice_metric = DiceMetric(include_background=True, reduction="mean")
+
     dice_metric = DiceMetric(include_background=True, reduction="mean", num_classes=num_classes)
+    loss_metric = LossMetric(loss_fn=loss_function, reduction="mean")
     iou_metric = MeanIoU(include_background=True, reduction="mean")
+
+
     optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
 
 
@@ -50,7 +52,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         print(f"Resuming training from epoch {start_epoch}")
 
     # lr scheduler helps in stopping overfitting
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.5, total_iters=30)
 
 
     for epoch in range(start_epoch,num_epochs+1):
@@ -69,7 +71,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             train_loss.backward()
             
             dice_metric(output, mask.squeeze(dim=0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
-
+            loss_metric(output, mask.squeeze(dim=0))
             iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
             
             optimizer.step()
@@ -77,6 +79,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         lr_scheduler.step()
 
         dice_score_train = dice_metric.aggregate().item()
+        dice_score_train_2 = loss_metric.aggregate().item()
         jaccard_score_train = iou_metric.aggregate().item()
 
         # print(f'Dice Score Train : {type(dice_score_train)}') # Dice Score Train : <class 'float'>
@@ -87,6 +90,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         # print(dice_score_train) # metatensor([[0.9095]])
 
         dice_metric.reset()
+        loss_metric.reset()
         iou_metric.reset()
         
         model.eval()
@@ -104,15 +108,18 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
 
                 dice_metric(output.unsqueeze(dim=0), mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
+                loss_metric(output.unsqueeze(dim=0), mask)
                 iou_metric(output.unsqueeze(dim=0), mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
             dice_score_test = dice_metric.aggregate().item()
+            dice_score_test_2 = loss_metric.aggregate().item()
             jaccard_score_test = iou_metric.aggregate().item()
 
             # print(dice_score_test.shape) #torch.Size([1, 5])
             # print(jaccard_score_test_monai.shape) #torch.Size([1, 5])
 
             dice_metric.reset()
+            loss_metric.reset()
             iou_metric.reset()
 
 
@@ -152,18 +159,22 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                    "test_loss":test_loss.item(),
                    "train_dice":dice_score_train,
                    "test_dice":dice_score_test, 
+                   "train_dice_LOSS_METRIC":dice_score_train_2,
+                   "test_dice_LOSS_METRIC":dice_score_test_2,
                    "train_jaccard":jaccard_score_train,
                    "test_jaccard":jaccard_score_test,
                    "image": [wandb.Image(img) for img in images]
                    })    
         
         print(f'Epoch [{epoch + 1}/{num_epochs}], '
-            f'Train Loss: {train_loss}, '
-            f'Test Loss: {test_loss}, '
-            f'Train Dice Score: {dice_score_train}, '
-            f'Test Dice Score: {dice_score_test}, '
-            f'Train Jaccard: {jaccard_score_train}, '
-            f'Test Jaccard: {jaccard_score_test}, ')
+            f'Train Loss: {train_loss:.4f}, '
+            f'Test Loss: {test_loss:.4f}, '
+            f'Train Dice Score: {dice_score_train:.4f}, '
+            f'Test Dice Score: {dice_score_test:.4f}, '
+            f'Train Dice FROM LOSS : {dice_score_train_2:.4f}, '
+            f'Test Dice FROM LOSS: {dice_score_test_2:.4f}, '
+            f'Train Jaccard: {jaccard_score_train:.4f}, '
+            f'Test Jaccard: {jaccard_score_test:.4f}, ')
     
     return model,num_epochs,optimizer, train_loss
 
