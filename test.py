@@ -4,7 +4,6 @@ import torch.optim as optim
 from axial_fusion_transformer import axial_fusion_transformer
 import os
 from tqdm import tqdm 
-from calculate_metrics import calculate_metrics
 from operator import add
 import yaml 
 import json
@@ -28,6 +27,17 @@ with open('./config/train_config.yaml', 'r') as config_file:
     if __name__ == '__main__':
         warnings.filterwarnings("ignore")
 
+        wandb.login(key=config_params["training_params"]["wandb_key"])
+
+        wandb.init(
+            project="SegTHOR Axial Implementation",
+            config={
+                "epochs": config_params["training_params"]["num_epochs"],
+                "batch_size":config_params["training_params"]["batch_size"],
+                "lr": config_params["training_params"]["lr"]
+            }
+        )
+
         image_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/P*.nii.gz'
         mask_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/G*.nii.gz'
 
@@ -36,10 +46,12 @@ with open('./config/train_config.yaml', 'r') as config_file:
         Na = config_params["training_params"]["Na"]
         Nf = config_params["training_params"]["Nf"]
 
-        optimizer = optim.Adam()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         model = axial_fusion_transformer(Na, Nf, config_params["training_params"]["num_classes"]).to(device)
+        
+        optimizer = optim.Adam(params=model.parameters())
+
         checkpoint_path = 'model.pth'
         if os.path.exists(checkpoint_path):
             checkpoint = torch.load(checkpoint_path)
@@ -78,7 +90,7 @@ with open('./config/train_config.yaml', 'r') as config_file:
                 ax[0].set_title('Image of SegTHOR CT Scan')
                 ax[1].imshow(mask[:,:,n_slice].cpu())
                 ax[1].set_title('Original Mask')
-                ax[2].imshow(output[:,:,n_slice].cpu() > 0.5)
+                ax[2].imshow(output[:,:,n_slice].cpu())
                 ax[2].set_title('Predicted Mask')
 
                 fig.savefig(f'images/full_figure{i} {j} {n_slice}.png')
