@@ -70,7 +70,7 @@ def get_from_loader(image_location, mask_location, num_classes, batch_size):
 
     train_dataset, test_dataset = random_split(my_dataset, [num_train_samples , num_test_samples])
     
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_dataloader, test_dataloader
