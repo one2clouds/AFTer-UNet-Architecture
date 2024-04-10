@@ -35,7 +35,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
     loss_function = DiceLoss(include_background=True, reduction="mean")
     # dice metric vanne use garda nan values aayo
     # dice_metric = DiceMetric(include_background=True, reduction="mean")
-    dice_metric = DiceMetric(include_background=True, reduction="mean")
+    dice_metric = DiceMetric(include_background=True, reduction="mean", num_classes=num_classes)
     iou_metric = MeanIoU(include_background=True, reduction="mean")
     optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
 
@@ -49,15 +49,14 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         start_epoch = checkpoint['epoch'] + 1
         print(f"Resuming training from epoch {start_epoch}")
 
+    # lr scheduler helps in stopping overfitting
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+
 
     for epoch in range(start_epoch,num_epochs+1):
         images = []
         model.train()
-        torch.cuda.empty_cache()
-        
         for img_and_mask in tqdm(train_dataloader, desc=f'Training Epoch {epoch}/{num_epochs}', unit='epoch'):
-            torch.cuda.empty_cache()
-            
             image = img_and_mask['_3d_image']['data'].float().to(device)
             mask = img_and_mask['_3d_mask']['data'].float().to(device)
             optimizer.zero_grad()
@@ -65,22 +64,27 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
             # print(output.shape) # torch.Size([5, 128, 128, 128])
             # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
-            train_loss = loss_function(output, mask.squeeze(dim=0))
+
+            train_loss = loss_function(output, mask.squeeze(dim=0)) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
             train_loss.backward()
             
-            dice_metric(output, mask.squeeze(dim=0))
+            dice_metric(output, mask.squeeze(dim=0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
 
-            iou_metric(output, mask.squeeze(dim=0))
-
-            dice_score_train = dice_metric.aggregate().item()
-            jaccard_score_train = iou_metric.aggregate().item()
-
-            # print(jaccard_score_train_monai.shape)  #torch.Size([1, 5])
-            # print(dice_score_train.shape)  #torch.Size([1, 5])
-
+            iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+            
             optimizer.step()
 
-            # print(dice_score_train) # metatensor([[0.9095]])
+        lr_scheduler.step()
+
+        dice_score_train = dice_metric.aggregate().item()
+        jaccard_score_train = iou_metric.aggregate().item()
+
+        # print(f'Dice Score Train : {type(dice_score_train)}') # Dice Score Train : <class 'float'>
+        # print(f'Jaccard Score Train : {type(jaccard_score_train)}') # Jaccard Score Train : <class 'float'>
+        # print(f'Train Loss : {type(train_loss)}') # Train Loss : <class 'monai.data.meta_tensor.MetaTensor'>
+
+
+        # print(dice_score_train) # metatensor([[0.9095]])
 
         dice_metric.reset()
         iou_metric.reset()
@@ -93,19 +97,20 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 mask = img_and_mask['_3d_mask']['data'].float().to(device)
                 output = model(image)
                 
-                test_loss = loss_function(output, mask.squeeze(dim=0))
+                test_loss = loss_function(output.unsqueeze(dim=0), mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
 
                 # print(dice_score_test) # metatensor([[0.9115]])
                 # print(output.shape) # torch.Size([5, 128, 128, 128])
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
-                dice_metric(output, mask.squeeze(dim=0)) # only passing batchC, H,W,D to the metric 
-                iou_metric(output, mask.squeeze(dim=0)) # only passing batch, C, H,W,D to the metric 
 
-                dice_score_test = dice_metric.aggregate().item()
-                jaccard_score_test = iou_metric.aggregate().item()
+                dice_metric(output.unsqueeze(dim=0), mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
+                iou_metric(output.unsqueeze(dim=0), mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
-                # print(dice_score_test.shape) #torch.Size([1, 5])
-                # print(jaccard_score_test_monai.shape) #torch.Size([1, 5])
+            dice_score_test = dice_metric.aggregate().item()
+            jaccard_score_test = iou_metric.aggregate().item()
+
+            # print(dice_score_test.shape) #torch.Size([1, 5])
+            # print(jaccard_score_test_monai.shape) #torch.Size([1, 5])
 
             dice_metric.reset()
             iou_metric.reset()
@@ -153,12 +158,12 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                    })    
         
         print(f'Epoch [{epoch + 1}/{num_epochs}], '
-            f'Train Loss: {train_loss.item():.4f}, '
-            f'Test Loss: {test_loss.item():.4f}, '
-            f'Train Dice Score: {dice_score_train:.4f}, '
-            f'Test Dice Score: {dice_score_test:.4f}, '
-            f'Train Jaccard: {jaccard_score_train:.4f}, '
-            f'Test Jaccard: {jaccard_score_test:.4f}, ')
+            f'Train Loss: {train_loss}, '
+            f'Test Loss: {test_loss}, '
+            f'Train Dice Score: {dice_score_train}, '
+            f'Test Dice Score: {dice_score_test}, '
+            f'Train Jaccard: {jaccard_score_train}, '
+            f'Test Jaccard: {jaccard_score_test}, ')
     
     return model,num_epochs,optimizer, train_loss
 
