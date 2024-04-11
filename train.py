@@ -13,7 +13,10 @@ import wandb
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric, MeanIoU, LossMetric
 
+from monai.metrics.meandice import compute_dice
+from monai.metrics.meaniou import compute_iou
 import warnings
+from utils import show_img_mask_output
 
 
 with open('./config/train_config.yaml', 'r') as config_file:
@@ -56,9 +59,10 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
 
 
     for epoch in range(start_epoch,num_epochs+1):
-        images = []
+        images_wandb_train = []
+        images_wandb_test = []
         model.train()
-        for img_and_mask in tqdm(train_dataloader, desc=f'Training Epoch {epoch}/{num_epochs}', unit='epoch'):
+        for count, img_and_mask in enumerate(tqdm(train_dataloader, desc=f'Training Epoch {epoch}/{num_epochs}', unit='epoch')):
             image = img_and_mask['_3d_image']['data'].float().to(device)
             mask = img_and_mask['_3d_mask']['data'].float().to(device)
             optimizer.zero_grad()
@@ -73,8 +77,19 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             dice_metric(output, mask.squeeze(dim=0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
             loss_metric(output, mask.squeeze(dim=0))
             iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+
+            computed_dice_train = compute_dice(output.unsqueeze(dim=0), mask).mean()
+            computed_iou_train= compute_iou(output.unsqueeze(dim=0), mask).mean()
+
+            # print(computed_dice_train)
+            # print(computed_iou_train)
             
             optimizer.step()
+
+            # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
+            if count%10 ==0:
+                img_wandb_train = show_img_mask_output(image, mask, output)
+                images_wandb_train.append(img_wandb_train)
 
         lr_scheduler.step()
 
@@ -82,12 +97,10 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         dice_score_train_2 = loss_metric.aggregate().item()
         jaccard_score_train = iou_metric.aggregate().item()
 
+
         # print(f'Dice Score Train : {type(dice_score_train)}') # Dice Score Train : <class 'float'>
         # print(f'Jaccard Score Train : {type(jaccard_score_train)}') # Jaccard Score Train : <class 'float'>
         # print(f'Train Loss : {type(train_loss)}') # Train Loss : <class 'monai.data.meta_tensor.MetaTensor'>
-
-
-        # print(dice_score_train) # metatensor([[0.9095]])
 
         dice_metric.reset()
         loss_metric.reset()
@@ -95,7 +108,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
         
         model.eval()
         with torch.no_grad():
-            for img_and_mask in tqdm(test_dataloader, desc=f'Test Epoch {epoch}/{num_epochs}', unit='epoch'):
+            for count, img_and_mask in enumerate(tqdm(test_dataloader, desc=f'Test Epoch {epoch}/{num_epochs}', unit='epoch')):
                 torch.cuda.empty_cache()
                 image = img_and_mask['_3d_image']['data'].float().to(device)
                 mask = img_and_mask['_3d_mask']['data'].float().to(device)
@@ -111,6 +124,17 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                 loss_metric(output.unsqueeze(dim=0), mask)
                 iou_metric(output.unsqueeze(dim=0), mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
+                computed_dice_test= compute_dice(output.unsqueeze(dim=0), mask).mean()
+                computed_iou_test= compute_iou(output.unsqueeze(dim=0), mask).mean()
+
+                # print(computed_dice_test)
+                # print(computed_iou_test)
+
+
+                # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
+                img_wandb_test = show_img_mask_output(image, mask, output)
+                images_wandb_test.append(img_wandb_test)
+                
             dice_score_test = dice_metric.aggregate().item()
             dice_score_test_2 = loss_metric.aggregate().item()
             jaccard_score_test = iou_metric.aggregate().item()
@@ -122,33 +146,6 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             loss_metric.reset()
             iou_metric.reset()
 
-
-            # TAKING FIRST 4 IMAGES OF TEST AND PASSING IT TO WANDB FOR VISUALIZATION AFTER EVERY EPOCH
-            for img_and_mask in list(test_dataloader): 
-                image = img_and_mask['_3d_image']['data'].float().to(device)
-                mask = img_and_mask['_3d_mask']['data'].float().to(device)
-                output = model(image) 
-                image = image.squeeze()
-                mask = mask.squeeze(dim=0).argmax(0)
-                output = output.argmax(0)
-
-                # print(image.shape) # torch.Size([128, 128, 128])
-                # print(mask.shape) # torch.Size([128, 128, 128])
-                # print(output.shape) # torch.Size([128, 128, 128])
-            
-                fig, ax = plt.subplots(1,3)
-                n_slice = 55 #int(random.random() * 128)
-                ax[0].imshow(image[:,:,n_slice].cpu())
-                ax[0].set_title('Image of SegTHOR CT Scan')
-                ax[1].imshow(mask[:,:,n_slice].cpu())
-                ax[1].set_title('Original Mask')
-                ax[2].imshow(output[:,:,n_slice].cpu())
-                ax[2].set_title('Predicted Mask')
-
-                # fig.savefig(f'images/figure {n_slice}.png')
-
-                images.append(fig)
-
                 
         torch.save({'epoch':epoch, 
                     'model_state_dict':model.state_dict(),
@@ -159,11 +156,18 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                    "test_loss":test_loss.item(),
                    "train_dice":dice_score_train,
                    "test_dice":dice_score_test, 
+
+                   "Train Dice FROM FUNC":computed_dice_train,
+                   "Test Dice FROM FUNC": computed_dice_test, 
+                   "Train Iou FROM FUNC":computed_iou_train, 
+                   "Test Iou FROM FUNC":computed_iou_test,
+
                    "train_dice_LOSS_METRIC":dice_score_train_2,
                    "test_dice_LOSS_METRIC":dice_score_test_2,
                    "train_jaccard":jaccard_score_train,
                    "test_jaccard":jaccard_score_test,
-                   "image": [wandb.Image(img) for img in images]
+                   "image_wandb_train": [wandb.Image(img) for img in images_wandb_train],
+                   "image_wandb_test": [wandb.Image(img) for img in images_wandb_test]
                    })    
         
         print(f'Epoch [{epoch + 1}/{num_epochs}], '
@@ -173,8 +177,16 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
             f'Test Dice Score: {dice_score_test:.4f}, '
             f'Train Dice FROM LOSS : {dice_score_train_2:.4f}, '
             f'Test Dice FROM LOSS: {dice_score_test_2:.4f}, '
+
+            f'Train Dice FROM FUNC : {computed_dice_train:.4f}, '
+            f'Test Dice FROM FUNC: {computed_dice_test:.4f}, '
+
+            f'Train Iou FROM FUNC : {computed_iou_train:.4f}, '
+            f'Test Iou FROM FUNC: {computed_iou_test:.4f}, '
+
             f'Train Jaccard: {jaccard_score_train:.4f}, '
-            f'Test Jaccard: {jaccard_score_test:.4f}, ')
+            f'Test Jaccard: {jaccard_score_test:.4f}, '
+            )
     
     return model,num_epochs,optimizer, train_loss
 
