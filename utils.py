@@ -41,7 +41,7 @@ def append_neighboring_slices(Na,Nf,D,ct_scan_slices):
 
 
 def show_img_mask_output(img, mask, output):
-    image = image.squeeze()
+    image = img.squeeze()
     mask = mask.squeeze(dim=0).argmax(0)
     output = output.argmax(0)
 
