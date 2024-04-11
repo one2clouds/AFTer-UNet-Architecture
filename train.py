@@ -7,7 +7,6 @@ from tqdm import tqdm
 from operator import add
 import yaml 
 import json
-import matplotlib.pyplot as plt
 from check_size_and_voxels.check_dataset import check_dataset
 import wandb
 from monai.losses import DiceLoss
@@ -151,21 +150,39 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
                     'model_state_dict':model.state_dict(),
                     'optimizer_state_dict':optimizer.state_dict(),
                     }, checkpoint_path)
+        
+        # print(type(train_loss)) # <class 'monai.data.meta_tensor.MetaTensor'>
+        # print(type(test_loss)) # <class 'monai.data.meta_tensor.MetaTensor'>
+
+        # print(type(dice_score_train)) # <class 'float'>
+        # print(type(dice_score_test)) # <class 'float'>
+
+        # print(type(computed_dice_train)) # <class 'monai.data.meta_tensor.MetaTensor'>
+        # print(type(computed_dice_test)) # <class 'monai.data.meta_tensor.MetaTensor'>
+        # print(type(computed_iou_train)) # <class 'monai.data.meta_tensor.MetaTensor'>
+        # print(type(computed_iou_test)) # <class 'monai.data.meta_tensor.MetaTensor'>
+
+        # print(type(dice_score_train_2)) # <class 'float'>
+        # print(type(dice_score_test_2)) # <class 'float'>
+        # print(type(jaccard_score_train)) # <class 'float'>
+        # print(type(jaccard_score_test)) # <class 'float'>
 
         wandb.log({"train_loss":train_loss.item(),
                    "test_loss":test_loss.item(),
+
                    "train_dice":dice_score_train,
                    "test_dice":dice_score_test, 
 
-                   "Train Dice FROM FUNC":computed_dice_train,
-                   "Test Dice FROM FUNC": computed_dice_test, 
-                   "Train Iou FROM FUNC":computed_iou_train, 
-                   "Test Iou FROM FUNC":computed_iou_test,
+                   "Train Dice FROM FUNC":computed_dice_train.item(),
+                   "Test Dice FROM FUNC": computed_dice_test.item(), 
+                   "Train Iou FROM FUNC":computed_iou_train.item(), 
+                   "Test Iou FROM FUNC":computed_iou_test.item(),
 
                    "train_dice_LOSS_METRIC":dice_score_train_2,
                    "test_dice_LOSS_METRIC":dice_score_test_2,
                    "train_jaccard":jaccard_score_train,
                    "test_jaccard":jaccard_score_test,
+
                    "image_wandb_train": [wandb.Image(img) for img in images_wandb_train],
                    "image_wandb_test": [wandb.Image(img) for img in images_wandb_test]
                    })    
