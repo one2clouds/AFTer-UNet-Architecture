@@ -1,4 +1,6 @@
 import torch 
+import matplotlib.pyplot as plt
+
 
 
 
@@ -33,3 +35,29 @@ def append_neighboring_slices(Na,Nf,D,ct_scan_slices):
     
 #     print(final_slices.shape)
     return final_slices
+
+
+
+
+
+def show_img_mask_output(img, mask, output):
+    image = image.squeeze()
+    mask = mask.squeeze(dim=0).argmax(0)
+    output = output.argmax(0)
+
+    # print(image.shape) # torch.Size([128, 128, 128])
+    # print(mask.shape) # torch.Size([128, 128, 128])
+    # print(output.shape) # torch.Size([128, 128, 128])
+
+    fig, ax = plt.subplots(1,3)
+    n_slice = 55 #int(random.random() * 128)
+    ax[0].imshow(image[:,:,n_slice].cpu())
+    ax[0].set_title('Image of SegTHOR CT Scan')
+    ax[1].imshow(mask[:,:,n_slice].cpu())
+    ax[1].set_title('Original Mask')
+    ax[2].imshow(output[:,:,n_slice].cpu())
+    ax[2].set_title('Predicted Mask')
+
+    # fig.savefig(f'images/figure {n_slice}.png')
+    
+    return fig
