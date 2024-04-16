@@ -12,7 +12,7 @@ from monai.transforms import Compose, Spacing
 
 
 
-class MyDataset(Dataset):
+class SegTHORDataset(Dataset):
     def __init__(self, image_location, mask_location, num_classes):
         self.image_list = sorted(glob.glob(image_location))
         self.mask_list = sorted(glob.glob(mask_location))
@@ -31,6 +31,8 @@ class MyDataset(Dataset):
         image = nib.load(self.image_list[idx]).get_fdata()
         image = self.scaler.fit_transform(image.reshape(-1, image.shape[-1])).reshape(image.shape)
         image = torch.tensor(image, dtype=torch.float64)
+
+        # print(image.shape) # torch.Size([512, 512, 162])
     
         mask = nib.load(self.mask_list[idx]).get_fdata()
         # print(torch.tensor(mask).unique()) # tensor([0., 1., 2., 3., 4.], dtype=torch.float64)
@@ -58,8 +60,8 @@ class MyDataset(Dataset):
         return image_and_mask
         
 
-def get_from_loader(image_location, mask_location, num_classes, batch_size):
-    my_dataset = MyDataset(image_location, mask_location, num_classes)
+def get_from_loader_segthor(image_location, mask_location, num_classes, batch_size):
+    my_dataset = SegTHORDataset(image_location, mask_location, num_classes)
 
     train_ratio = 0.9
     test_ratio = 1.0 - train_ratio
@@ -75,5 +77,7 @@ def get_from_loader(image_location, mask_location, num_classes, batch_size):
 
     return train_dataloader, test_dataloader
 
+def get_from_loader_brats():
+    return train_dataloader, test_dataloader
 
 
