@@ -1,4 +1,4 @@
-from Data.prepare_dataloader import get_from_loader
+from Data.prepare_dataloader import get_from_loader_segthor, get_from_loader_brats
 import torch
 import torch.optim as optim
 from axial_fusion_transformer import axial_fusion_transformer
@@ -11,11 +11,14 @@ from check_size_and_voxels.check_dataset import check_dataset
 import wandb
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric, MeanIoU, LossMetric
+from monai.utils.misc import set_determinism
 
 from monai.metrics.meandice import compute_dice
 from monai.metrics.meaniou import compute_iou
 import warnings
 from utils import show_img_mask_output
+
+import argparse
 
 
 with open('./config/train_config.yaml', 'r') as config_file:
@@ -208,13 +211,20 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
     return model,num_epochs,optimizer, train_loss
 
 
+def parse_training_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("train_config")
+    parser.add_argument("val_config")
+    parser.add_argument("--dataset_to_use")
+
+    args = parser.parse_args()
+
+    return args
+
 
 if __name__ =='__main__':
 
     warnings.filterwarnings("ignore")
-
-    image_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/P*.nii.gz'
-    mask_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/G*.nii.gz'
 
     wandb.login(key=config_params["training_params"]["wandb_key"])
 
@@ -226,13 +236,38 @@ if __name__ =='__main__':
             "lr": config_params["training_params"]["lr"]
         }
     )
+
+    args = parse_training_arguments()
+
+    train_config = args.train_config
+    val_config = args.val_config
+    dataset_to_use = args.dataset_to_use
+
+
+
+
+
+
 # check for voxel shape and load in csv format
     # check_dataset(image_location, mask_location)
 
     # print(config_params["training_params"]["num_classes"]) #5
 
+    if dataset_to_use == "segthor_data":
+        image_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/P*.nii.gz'
+        mask_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/G*.nii.gz'
+        
+        train_dataloader, test_dataloader = get_from_loader_segthor(image_location, mask_location, config_params["training_params"]["num_classes"], wandb.config['batch_size'])
+
+    elif dataset_to_use =="brats_data":
+        t2_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*t2.nii'
+        t1ce_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*t1ce.nii'
+        flair_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*flair.nii'
+        mask_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*seg.nii'
+
+        train_dataloader, test_dataloader = get
     
-    train_dataloader, test_dataloader = get_from_loader(image_location, mask_location, config_params["training_params"]["num_classes"], wandb.config['batch_size'])                                   
+                                       
     
-    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, config_params["training_params"]["num_classes"], wandb)
+    #model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, config_params["training_params"]["num_classes"], wandb)
 
