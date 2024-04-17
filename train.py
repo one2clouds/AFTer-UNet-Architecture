@@ -16,7 +16,7 @@ from monai.utils.misc import set_determinism
 from monai.metrics.meandice import compute_dice
 from monai.metrics.meaniou import compute_iou
 import warnings
-from utils import show_img_mask_output
+from utils import visualize_img_mask_output
 
 import argparse
 
@@ -47,7 +47,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
     optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
 
 
-    checkpoint_path = 'model.pth'
+    checkpoint_path = 'new_model.pth'
     start_epoch = 1
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
@@ -90,7 +90,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
             # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
             if count%10 ==0:
-                img_wandb_train = show_img_mask_output(image, mask, output)
+                img_wandb_train = visualize_img_mask_output(image, mask, output, num_channels_before_training)
                 images_wandb_train.append(img_wandb_train)
 
         lr_scheduler.step()
@@ -134,7 +134,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
 
                 # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
-                img_wandb_test = show_img_mask_output(image, mask, output)
+                img_wandb_test = visualize_img_mask_output(image, mask, output, num_channels_before_training)
                 images_wandb_test.append(img_wandb_test)
                 
             dice_score_test = dice_metric.aggregate().item()
