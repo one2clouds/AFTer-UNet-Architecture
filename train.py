@@ -25,7 +25,7 @@ with open('./config/train_config.yaml', 'r') as config_file:
     config_params = yaml.safe_load(config_file)
     model_config = json.dumps(config_params)
 
-def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
+def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, wandb):
 
     num_epochs = wandb.config['epochs']
 
@@ -35,7 +35,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes, wandb):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if config_params["training_params"]["model_name"] == "axial_fusion_transformer":
-        model = axial_fusion_transformer(Na,Nf, num_classes).to(device)
+        model = axial_fusion_transformer(Na,Nf, num_classes,num_channels_before_training).to(device)
     
     loss_function = DiceLoss(include_background=True, reduction="mean")
 
@@ -229,7 +229,7 @@ if __name__ =='__main__':
     wandb.login(key=config_params["training_params"]["wandb_key"])
 
     wandb.init(
-        project="SegTHOR Axial Implementation",
+        project="SegTHOR & BRATS Axial Implementation",
         config={
             "epochs": config_params["training_params"]["num_epochs"],
             "batch_size":config_params["training_params"]["batch_size"],
@@ -245,19 +245,19 @@ if __name__ =='__main__':
 
 
 
-
-
-
 # check for voxel shape and load in csv format
     # check_dataset(image_location, mask_location)
 
-    # print(config_params["training_params"]["num_classes"]) #5
+    # print(num_classes) #5
 
     if dataset_to_use == "segthor_data":
         image_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/P*.nii.gz'
         mask_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/G*.nii.gz'
         
-        train_dataloader, test_dataloader = get_from_loader_segthor(image_location, mask_location, config_params["training_params"]["num_classes"], wandb.config['batch_size'])
+        num_classes = 5
+        num_channels_before_training = 1
+
+        train_dataloader, test_dataloader = get_from_loader_segthor(image_location, mask_location, num_classes, wandb.config['batch_size'])
 
     elif dataset_to_use =="brats_data":
         t2_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*t2.nii'
@@ -265,9 +265,13 @@ if __name__ =='__main__':
         flair_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*flair.nii'
         mask_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*seg.nii'
 
-        train_dataloader, test_dataloader = get
+        num_classes = 4
+        num_channels_before_training = 3
+
+        train_dataloader, test_dataloader = get_from_loader_brats(t2_location, t1ce_location, flair_location, mask_location, num_classes, wandb.config['batch_size'])                        
+    else:
+        print("Error in the dataloader phase....please choose a correct data to use")
     
-                                       
     
-    #model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, config_params["training_params"]["num_classes"], wandb)
+    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training, wandb)
 
