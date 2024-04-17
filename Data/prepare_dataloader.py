@@ -66,15 +66,15 @@ class BraTSDataset(Dataset):
         self.flair_list = sorted(glob.glob(flair_location))
         self.mask_list = sorted(glob.glob(mask_location))
         self.scaler = MinMaxScaler()
+        self.crop_or_pad = tio.CropOrPad((128, 128, 128))
         
     def __len__(self):
         return len(self.t2_list)
 
     def __getitem__(self, idx):
-
+        
         temp_image_t2=nib.load(self.t2_list[idx]).get_fdata()
         temp_image_t2=self.scaler.fit_transform(temp_image_t2.reshape(-1, temp_image_t2.shape[-1])).reshape(temp_image_t2.shape)
-
     
         temp_image_t1ce=nib.load(self.t1ce_list[idx]).get_fdata()
         temp_image_t1ce=self.scaler.fit_transform(temp_image_t1ce.reshape(-1, temp_image_t1ce.shape[-1])).reshape(temp_image_t1ce.shape)
@@ -88,13 +88,11 @@ class BraTSDataset(Dataset):
         temp_mask=temp_mask.astype(np.uint8)
         temp_mask[temp_mask==4] = 3  #Reassign mask values 4 to 3
         # print(np.unique(temp_mask))
-
+        
         temp_combined_images = np.stack([temp_image_flair, temp_image_t1ce, temp_image_t2], axis=3)
         
         #Crop to a size to be divisible by 64 so we can later extract 64x64x64 patches. 
         #cropping x, y, and z
-        temp_combined_images=temp_combined_images[56:184, 56:184, 13:141]
-        temp_mask = temp_mask[56:184, 56:184, 13:141]
         # print(temp_mask.shape)
         # print(np.unique(temp_mask, return_counts=True))
         labels, unique_content_of_label_count = np.unique(temp_mask, return_counts=True)
@@ -108,15 +106,24 @@ class BraTSDataset(Dataset):
             # Change the order from [batch_size, depth, width, height, channel] to [batch_size, channel, depth, width, height]
             temp_combined_images = temp_combined_images.transpose(0, 3).transpose(2, 3).transpose(1, 2)
             temp_mask = temp_mask.transpose(0, 3).transpose(2, 3).transpose(1, 2)
+            
+            temp_combined_images = temp_combined_images.float()
+            temp_mask = temp_mask.float()
 
+#             print(temp_combined_images.shape)
+#             print(temp_mask.shape)
              #         print(temp_mask.shape)
     #         print(temp_combined_images.shape)
     #         print('BraTS2020_TrainingData/input_data_3channels/images/image_'+str(index)+'.pt')
     #         print('BraTS2020_TrainingData/input_data_3channels/masks/mask_'+str(index)+'.pt')
 
-            # print("Background nai 0.99 vanda besi xa")
-            return temp_combined_images, temp_mask
+            # print("Background nai 0.99 vanda besi xa")            
+            temp_combined_images_and_mask = tio.Subject(
+                _3d_image = tio.ScalarImage(tensor=temp_combined_images),
+                _3d_mask = tio.LabelMap(tensor = temp_mask))
+            temp_combined_images_and_mask = self.crop_or_pad(temp_combined_images_and_mask)
 
+            return temp_combined_images_and_mask
 
 def get_from_loader_segthor(image_location, mask_location, num_classes, batch_size):
     my_dataset = SegTHORDataset(image_location, mask_location, num_classes)
@@ -138,7 +145,7 @@ def get_from_loader_segthor(image_location, mask_location, num_classes, batch_si
 def get_from_loader_brats(t2_location,t1ce_location,flair_location,mask_location,num_classes, batch_size):
     my_dataset = BraTSDataset(t2_location,t1ce_location,flair_location,mask_location)
 
-    train_ratio = 0.8
+    train_ratio = 0.9
     test_ratio = 1.0 - train_ratio
     # Calculate the number of samples for training and testing
     num_samples = len(my_dataset)
