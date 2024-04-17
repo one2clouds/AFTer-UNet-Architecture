@@ -204,32 +204,34 @@ class VitWithBottleneck(nn.Module):
 
 
 class axial_fusion_transformer(nn.Module):
-    def __init__(self, Na, Nf, num_classes):
+    def __init__(self, Na, Nf, num_classes,num_channels_before_training,init_features=8):
         super().__init__()
         """ Encoder"""
 #         Number of blocks = 5
         self.Na = Na
         self.Nf = Nf
         self.num_classes = num_classes
+        self.num_channels_before_training = num_channels_before_training
+        self.features = init_features
 
         self.convert3d_image2_slices = convert3d_image2_slices
         self.append_neighboring_slices = append_neighboring_slices
         
-        self.e1 = encoder_block(1,8)
-        self.e2 = encoder_block(8,16)
-        self.e3 = encoder_block(16,32)
-        self.e4 = encoder_block(32,64)
-        self.e5 = encoder_block(64,128)
+        self.e1 = encoder_block(self.num_channels_before_training,self.features)
+        self.e2 = encoder_block(self.features,self.features*2)
+        self.e3 = encoder_block(self.features*2,self.features*4)
+        self.e4 = encoder_block(self.features*4,self.features*8)
+        self.e5 = encoder_block(self.features*8,self.features*16)
         
         """Transformer Block"""
-        self.vit_with_bottleneck = VitWithBottleneck(img_size=4, patch_size=1,embedding_dim = 128,multihead_attention_heads = 8, num_layers = 5, channels = 128, dropout = 0.)
+        self.vit_with_bottleneck = VitWithBottleneck(img_size=4, patch_size=1,embedding_dim = 128,multihead_attention_heads = 8, num_layers = 5, channels = init_features*16, dropout = 0.)
         
         """ Decoder"""
-        self.d1 = decoder_block(128, 64)
-        self.d2 = decoder_block(64, 32)
-        self.d3 = decoder_block(32, 16)
-        self.d4 = decoder_block(16, 8)
-        self.d5 = decoder_block(8, self.num_classes)
+        self.d1 = decoder_block(self.features*16, self.features*8)
+        self.d2 = decoder_block(self.features*8, self.features*4)
+        self.d3 = decoder_block(self.features*4, self.features*2)
+        self.d4 = decoder_block(self.features*2, self.features)
+        self.d5 = decoder_block(self.features, self.num_classes)
         self.softmax = nn.Softmax(dim=0)
         
     def forward(self, a_3d_image):
