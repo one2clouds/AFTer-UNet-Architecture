@@ -25,7 +25,7 @@ with open('./config/train_config.yaml', 'r') as config_file:
     config_params = yaml.safe_load(config_file)
     model_config = json.dumps(config_params)
 
-def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, wandb):
+def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, checkpoint_path):
 
     num_epochs = wandb.config['epochs']
 
@@ -46,15 +46,15 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
     optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
 
-
-    checkpoint_path = 'new_model.pth'
     start_epoch = 1
-    if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        print(f"Resuming training from epoch {start_epoch}")
+
+    if checkpoint_path is not None:
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            print(f"Resuming training from epoch {start_epoch}")
 
     # lr scheduler helps in stopping overfitting
     lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.5, total_iters=30)
@@ -76,12 +76,12 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
             train_loss = loss_function(output, mask.squeeze(dim=0)) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
             train_loss.backward()
             
-            dice_metric(output, mask.squeeze(dim=0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
-            loss_metric(output, mask.squeeze(dim=0))
-            iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+            dice_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
+            loss_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0))
+            iou_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
-            computed_dice_train = compute_dice(output.unsqueeze(dim=0), mask).mean()
-            computed_iou_train= compute_iou(output.unsqueeze(dim=0), mask).mean()
+            computed_dice_train = compute_dice(output.argmax(0), mask.squeeze(dim=0).argmax(0))
+            computed_iou_train= compute_iou(output.argmax(0), mask.squeeze(dim=0).argmax(0))
 
             # print(computed_dice_train)
             # print(computed_iou_train)
@@ -122,20 +122,21 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
                 # print(output.shape) # torch.Size([5, 128, 128, 128])
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
 
-                dice_metric(output.unsqueeze(dim=0), mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
-                loss_metric(output.unsqueeze(dim=0), mask)
-                iou_metric(output.unsqueeze(dim=0), mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+                dice_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
+                loss_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0))
+                iou_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
-                computed_dice_test= compute_dice(output.unsqueeze(dim=0), mask).mean()
-                computed_iou_test= compute_iou(output.unsqueeze(dim=0), mask).mean()
+                computed_dice_test= compute_dice(output.argmax(0), mask.squeeze(dim=0).argmax(0))
+                computed_iou_test= compute_iou(output.argmax(0), mask.squeeze(dim=0).argmax(0))
 
                 # print(computed_dice_test)
                 # print(computed_iou_test)
 
 
                 # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
-                img_wandb_test = visualize_img_mask_output(image, mask, output, num_channels_before_training)
-                images_wandb_test.append(img_wandb_test)
+                if count%10 ==0:
+                    img_wandb_test = visualize_img_mask_output(image, mask, output, num_channels_before_training)
+                    images_wandb_test.append(img_wandb_test)
                 
             dice_score_test = dice_metric.aggregate().item()
             dice_score_test_2 = loss_metric.aggregate().item()
@@ -176,10 +177,10 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
                    "train_dice":dice_score_train,
                    "test_dice":dice_score_test, 
 
-                   "Train Dice FROM FUNC":computed_dice_train.item(),
-                   "Test Dice FROM FUNC": computed_dice_test.item(), 
-                   "Train Iou FROM FUNC":computed_iou_train.item(), 
-                   "Test Iou FROM FUNC":computed_iou_test.item(),
+                   "Train Dice FROM FUNC":computed_dice_train,
+                   "Test Dice FROM FUNC": computed_dice_test, 
+                   "Train Iou FROM FUNC":computed_iou_train, 
+                   "Test Iou FROM FUNC":computed_iou_test,
 
                    "train_dice_LOSS_METRIC":dice_score_train_2,
                    "test_dice_LOSS_METRIC":dice_score_test_2,
@@ -216,7 +217,7 @@ def parse_training_arguments():
     parser.add_argument("train_config")
     parser.add_argument("val_config")
     parser.add_argument("--dataset_to_use")
-
+    parser.add_argument('--checkpoint')
     args = parser.parse_args()
 
     return args
@@ -239,6 +240,8 @@ if __name__ =='__main__':
 
     args = parse_training_arguments()
 
+    # print(args)
+    
     train_config = args.train_config
     val_config = args.val_config
     dataset_to_use = args.dataset_to_use
@@ -273,5 +276,5 @@ if __name__ =='__main__':
         print("Error in the dataloader phase....please choose a correct data to use")
     
     
-    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training, wandb)
+    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args.checkpoint)
 
