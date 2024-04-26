@@ -24,7 +24,7 @@ class SegTHORDataset(Dataset):
             ])
         
     def __len__(self):
-        return len(self.image_list)
+        return 5 #len(self.image_list)
 
     def __getitem__(self, idx):
 
@@ -128,7 +128,7 @@ class BraTSDataset(Dataset):
 def get_from_loader_segthor(image_location, mask_location, num_classes, batch_size):
     my_dataset = SegTHORDataset(image_location, mask_location, num_classes)
 
-    train_ratio = 0.9
+    train_ratio = 0.75
     test_ratio = 1.0 - train_ratio
 
     num_samples = len(my_dataset)
