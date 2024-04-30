@@ -1,6 +1,6 @@
 import torch 
 import matplotlib.pyplot as plt
-
+import random
 
 
 
@@ -41,9 +41,9 @@ def append_neighboring_slices(Na,Nf,D,ct_scan_slices):
 
 
 def visualize_img_mask_output(img, mask, output, num_channels_before_training):
-    image = img.squeeze()
+    image = img.squeeze(dim=0)
     mask = mask.squeeze(dim=0).argmax(0)
-    output = output.argmax(0)
+    output = output.squeeze(dim=0).argmax(0)
 
     # print(image.shape) # torch.Size([128, 128, 128])
     # print(mask.shape) # torch.Size([128, 128, 128])
@@ -51,8 +51,8 @@ def visualize_img_mask_output(img, mask, output, num_channels_before_training):
 
     if num_channels_before_training == 1:
         fig, ax = plt.subplots(1,3)
-        n_slice = 55 #int(random.random() * 128)
-        ax[0].imshow(image[:,:,n_slice].cpu())
+        n_slice = int(random.random() * 128) # 55
+        ax[0].imshow(image[0,:,:,n_slice].cpu())
         ax[0].set_title('Image of SegTHOR CT Scan')
         ax[1].imshow(mask[:,:,n_slice].cpu())
         ax[1].set_title('Original Mask')
@@ -61,7 +61,7 @@ def visualize_img_mask_output(img, mask, output, num_channels_before_training):
 
     if num_channels_before_training == 3:
         fig, ax = plt.subplots(1,3)
-        n_slice = 55 #int(random.random() * 128)
+        n_slice = int(random.random() * 128) # 55
         ax[0].imshow(image[1,:,:,n_slice].cpu())
         ax[0].set_title('Image of SegTHOR CT Scan')
         ax[1].imshow(mask[:,:,n_slice].cpu())

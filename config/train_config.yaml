@@ -3,7 +3,6 @@ training_params:
   Na: 9
   Nf: 1
   device: cuda
-  model_name: axial_fusion_transformer
   loss_function: DiceLoss()
   wandb_key: 3c5761d8a73c56ab35a29b208a4db7e4912136c1
   batch_size: 1

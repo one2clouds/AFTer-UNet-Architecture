@@ -199,10 +199,6 @@ class VitWithBottleneck(nn.Module):
         return x
 
 
-
-
-
-
 class axial_fusion_transformer(nn.Module):
     def __init__(self, Na, Nf, num_classes,num_channels_before_training,init_features=8):
         super().__init__()
@@ -269,5 +265,5 @@ class axial_fusion_transformer(nn.Module):
 #         print(d5.shape) # torch.Size([128, 4, 128, 128])
 #         print(d5.permute(1,2,3,0).shape)  # torch.Size([4, 128, 128, 128])
         d5_permute = d5.permute(1,2,3,0)
-        final_softmax = self.softmax(d5_permute)
-        return final_softmax
+        # final_softmax = self.softmax(d5_permute)
+        return d5_permute #final_softmax
