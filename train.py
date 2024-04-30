@@ -10,23 +10,23 @@ import json
 from check_size_and_voxels.check_dataset import check_dataset
 import wandb
 from monai.losses import DiceLoss
-from monai.metrics import DiceMetric, MeanIoU, LossMetric
-from monai.utils.misc import set_determinism
-
-from monai.metrics.meandice import compute_dice
-from monai.metrics.meaniou import compute_iou
+from monai.metrics import DiceMetric, MeanIoU
 import warnings
 from utils import visualize_img_mask_output
+from monai.transforms import AsDiscrete, Compose, Activations
 
 import numpy as np
 import argparse
-
+from monai.networks.nets import UNet
+from monai.networks.layers import Norm
+# CUDA_VISIBLE_DEVICES=1 python3 train.py config/train_config.yaml config/test_config.yaml --model unet --dataset_to_use segthor_data --checkpoint new_model2.pth
+# or model that can be used axial_fusion_transformer
 
 with open('./config/train_config.yaml', 'r') as config_file:
     config_params = yaml.safe_load(config_file)
     model_config = json.dumps(config_params)
 
-def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, checkpoint_path):
+def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, args, post_transforms):
 
     num_epochs = wandb.config['epochs']
 
@@ -35,21 +35,30 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if config_params["training_params"]["model_name"] == "axial_fusion_transformer":
+    if args.model == "axial_fusion_transformer":
         model = axial_fusion_transformer(Na,Nf, num_classes,num_channels_before_training).to(device)
-    
+    elif args.model == 'unet':
+        model = UNet(
+            spatial_dims=3,
+            in_channels = num_channels_before_training,
+            channels = (8,16,32,64,128),
+            out_channels=num_classes,
+            strides=(2, 2, 2, 2),
+            norm=Norm.BATCH).to(device)
+
+
     loss_function = DiceLoss(include_background=True, reduction="mean")
 
-    dice_metric = DiceMetric(include_background=True, reduction="mean", num_classes=num_classes)
+    dice_metric = DiceMetric(include_background=True, reduction="mean")
     iou_metric = MeanIoU()
 
     optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
 
     start_epoch = 1
 
-    if checkpoint_path is not None:
-        if os.path.exists(checkpoint_path):
-            checkpoint = torch.load(checkpoint_path)
+    if args.checkpoint is not None:
+        if os.path.exists(args.checkpoint):
+            checkpoint = torch.load(args.checkpoint)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
@@ -70,14 +79,26 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
             optimizer.zero_grad()
             output = model(image)
 
-            # print(output.shape) # torch.Size([5, 128, 128, 128])
+            if args.model == "axial_fusion_transformer":
+                output = output.unsqueeze(dim=0) # BECAUSE OUR MODEL ONLY WORKS FOR 1 BATCH SIZE AND WANT TO MAKE IT TO MORE BATCH SIZE SO.........
+            
+            # print(image.shape)
+            # print(output.shape) # torch.Size([1, 5, 128, 128, 128])
             # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
 
-            train_loss = loss_function(output, mask.squeeze(dim=0)) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
+
+            train_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
             train_loss.backward()
             
-            dice_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
-            iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+            output = post_transforms(output) 
+
+            # print(output.shape) #torch.Size([1, 5, 128, 128, 128])
+            # print(mask.shape) #torch.Size([1, 5, 128, 128, 128])
+            # print(output.unique()) # metatensor([0., 1.], device='cuda:0')
+            # print(mask.unique()) # metatensor([0., 1.], device='cuda:0')
+            
+            dice_metric(output, mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD 
+            iou_metric(output, mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
             wandb.log({"train_loss":train_loss.item()})
             # print(train_loss)
@@ -112,15 +133,22 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
                 image = img_and_mask['_3d_image']['data'].float().to(device)
                 mask = img_and_mask['_3d_mask']['data'].float().to(device)
                 output = model(image)
+
+                if args.model == "axial_fusion_transformer":
+                    output = output.unsqueeze(dim=0)
                 
-                test_loss = loss_function(output.unsqueeze(dim=0), mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
+                test_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
 
                 # print(dice_score_test) # metatensor([[0.9115]])
                 # print(output.shape) # torch.Size([5, 128, 128, 128])
                 # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
 
-                dice_metric(output.argmax(0), mask.squeeze(dim=0).argmax(0)) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
-                iou_metric(output, mask.squeeze(dim=0)) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
+                # THe transforms should be always after calculating loss becoz it might be not differenciable
+
+                output = post_transforms(output) 
+
+                dice_metric(output, mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
+                iou_metric(output, mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
 
                 wandb.log({"test_loss":test_loss.item()})
                 # print(test_loss)
@@ -148,7 +176,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
         torch.save({'epoch':epoch, 
                     'model_state_dict':model.state_dict(),
                     'optimizer_state_dict':optimizer.state_dict(),
-                    }, checkpoint_path)
+                    }, args.checkpoint)
         
         # print(type(train_loss)) # <class 'monai.data.meta_tensor.MetaTensor'>
         # print(type(test_loss)) # <class 'monai.data.meta_tensor.MetaTensor'>
@@ -194,6 +222,7 @@ def parse_training_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("train_config")
     parser.add_argument("val_config")
+    parser.add_argument("--model")
     parser.add_argument("--dataset_to_use")
     parser.add_argument('--checkpoint')
     args = parser.parse_args()
@@ -224,7 +253,7 @@ if __name__ =='__main__':
     val_config = args.val_config
     dataset_to_use = args.dataset_to_use
 
-
+    post_transforms = Compose([Activations(softmax=True, dim=1), AsDiscrete(threshold=0.5)])
 
 # check for voxel shape and load in csv format
     # check_dataset(image_location, mask_location)
@@ -255,5 +284,5 @@ if __name__ =='__main__':
         print("Error in the dataloader phase....please choose a correct data to use")
     
     
-    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args.checkpoint)
+    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args, post_transforms)
 
