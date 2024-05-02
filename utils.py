@@ -36,23 +36,20 @@ def append_neighboring_slices(Na,Nf,D,ct_scan_slices):
 #     print(final_slices.shape)
     return final_slices
 
-
-
-
-
 def visualize_img_mask_output(img, mask, output, num_channels_before_training):
     image = img.squeeze(dim=0)
     mask = mask.squeeze(dim=0).argmax(0)
     output = output.squeeze(dim=0).argmax(0)
 
-    # print(image.shape) # torch.Size([128, 128, 128])
-    # print(mask.shape) # torch.Size([128, 128, 128])
-    # print(output.shape) # torch.Size([128, 128, 128])
+    print(image.shape) # torch.Size([num_channel_before_training, 128, 128, 128])
+    print(mask.shape) # torch.Size([128, 128, 128])
+    print(output.shape) # torch.Size([128, 128, 128])
 
     if num_channels_before_training == 1:
         fig, ax = plt.subplots(1,3)
         n_slice = int(random.random() * 128) # 55
-        ax[0].imshow(image[0,:,:,n_slice].cpu())
+        image = image.squeeze(dim=0)
+        ax[0].imshow(image[:,:,n_slice].cpu())
         ax[0].set_title('Image of SegTHOR CT Scan')
         ax[1].imshow(mask[:,:,n_slice].cpu())
         ax[1].set_title('Original Mask')
