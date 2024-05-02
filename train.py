@@ -26,7 +26,7 @@ with open('./config/train_config.yaml', 'r') as config_file:
     config_params = yaml.safe_load(config_file)
     model_config = json.dumps(config_params)
 
-def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, args, post_transforms):
+def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_before_training, args):
 
     num_epochs = wandb.config['epochs']
 
@@ -74,23 +74,26 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
         train_loss_epoch, test_loss_epoch = [],[]
         model.train()
         for count, img_and_mask in enumerate(tqdm(train_dataloader, desc=f'Training Epoch {epoch}/{num_epochs}', unit='epoch')):
-            image = img_and_mask['_3d_image']['data'].float().to(device)
-            mask = img_and_mask['_3d_mask']['data'].float().to(device)
+            image, mask = (img_and_mask["image"].to(device), img_and_mask["label"].to(device))
+
+            # print(image.shape) # torch.Size([1, 1, 128, 128, 128])
+            # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
+
             optimizer.zero_grad()
             output = model(image)
 
             if args.model == "axial_fusion_transformer":
                 output = output.unsqueeze(dim=0) # BECAUSE OUR MODEL ONLY WORKS FOR 1 BATCH SIZE AND WANT TO MAKE IT TO MORE BATCH SIZE SO.........
             
-            # print(image.shape)
             # print(output.shape) # torch.Size([1, 5, 128, 128, 128])
-            # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
 
+            output = Activations(softmax=True, dim=1)(output) # Adding softmax before passing to loss function
 
             train_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
             train_loss.backward()
             
-            output = post_transforms(output) 
+            #Adding AsDiscrete before passing to DiceMetric
+            output = AsDiscrete(threshold=0.5)(output) 
 
             # print(output.shape) #torch.Size([1, 5, 128, 128, 128])
             # print(mask.shape) #torch.Size([1, 5, 128, 128, 128])
@@ -130,12 +133,17 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
         with torch.no_grad():
             for count, img_and_mask in enumerate(tqdm(test_dataloader, desc=f'Test Epoch {epoch}/{num_epochs}', unit='epoch')):
                 torch.cuda.empty_cache()
-                image = img_and_mask['_3d_image']['data'].float().to(device)
-                mask = img_and_mask['_3d_mask']['data'].float().to(device)
+                image, mask = (img_and_mask["image"].to(device), img_and_mask["label"].to(device))
+
+                # print(image.shape) # torch.Size([1, 1, 128, 128, 128])
+                # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
+
                 output = model(image)
 
                 if args.model == "axial_fusion_transformer":
                     output = output.unsqueeze(dim=0)
+
+                output = Activations(softmax=True, dim=1)(output) # Adding softmax before passing to loss function
                 
                 test_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
 
@@ -145,7 +153,8 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
                 # THe transforms should be always after calculating loss becoz it might be not differenciable
 
-                output = post_transforms(output) 
+                #Adding AsDiscrete before passing to DiceMetric
+                output = AsDiscrete(threshold=0.5)(output) 
 
                 dice_metric(output, mask) # DICE METRIC TAKES I/P in the form of Batch Channel HWD
                 iou_metric(output, mask) # MEAN IOU TAKES I/P in the form of Batch Channel HWD
@@ -240,7 +249,7 @@ if __name__ =='__main__':
         project="SegTHOR New Axial Implementation",
         config={
             "epochs": config_params["training_params"]["num_epochs"],
-            "batch_size":config_params["training_params"]["batch_size"],
+            "batch_size": config_params["training_params"]["batch_size"],
             "lr": config_params["training_params"]["lr"]
         }
     )
@@ -252,8 +261,6 @@ if __name__ =='__main__':
     train_config = args.train_config
     val_config = args.val_config
     dataset_to_use = args.dataset_to_use
-
-    post_transforms = Compose([Activations(softmax=True, dim=1), AsDiscrete(threshold=0.5)])
 
 # check for voxel shape and load in csv format
     # check_dataset(image_location, mask_location)
@@ -267,8 +274,7 @@ if __name__ =='__main__':
         num_classes = 5
         num_channels_before_training = 1
         
-
-        train_dataloader, test_dataloader = get_from_loader_segthor(image_location, mask_location, num_classes, batch_size)
+        train_dataloader, test_dataloader, _,_ = get_from_loader_segthor(image_location, mask_location, batch_size,num_classes)
 
     elif dataset_to_use =="brats_data":
         t2_location = '/mnt/Enterprise2/shirshak/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/*/*t2.nii'
@@ -279,10 +285,10 @@ if __name__ =='__main__':
         num_classes = 4
         num_channels_before_training = 3
 
-        train_dataloader, test_dataloader = get_from_loader_brats(t2_location, t1ce_location, flair_location, mask_location, num_classes, batch_size)                        
+        train_dataloader, test_dataloader, _,_ = get_from_loader_brats(t2_location, t1ce_location, flair_location, mask_location, batch_size)                        
     else:
         print("Error in the dataloader phase....please choose a correct data to use")
     
     
-    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args, post_transforms)
+    model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args)
 
