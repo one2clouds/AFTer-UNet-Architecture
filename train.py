@@ -19,8 +19,12 @@ import numpy as np
 import argparse
 from monai.networks.nets import UNet
 from monai.networks.layers import Norm
-# CUDA_VISIBLE_DEVICES=1 python3 train.py config/train_config.yaml config/test_config.yaml --model unet --dataset_to_use segthor_data --checkpoint new_model2.pth
+# CUDA_VISIBLE_DEVICES=1 python3 train.py config/train_config.yaml --model unet --dataset_to_use segthor_data --checkpoint model_unet.pth
 # or model that can be used axial_fusion_transformer
+
+# CUDA_VISIBLE_DEVICES=1 python3 train.py config/train_config.yaml --model unet --dataset_to_use segthor_data --checkpoint model_unet_improved.pth
+
+# CUDA_VISIBLE_DEVICES=1 python3 train.py config/train_config.yaml --model axial_fusion_transformer --dataset_to_use segthor_data --checkpoint model_axial.pth
 
 with open('./config/train_config.yaml', 'r') as config_file:
     config_params = yaml.safe_load(config_file)
@@ -52,7 +56,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
     dice_metric = DiceMetric(include_background=True, reduction="mean")
     iou_metric = MeanIoU()
 
-    optimizer = optim.Adam(model.parameters(), lr = wandb.config['lr'])
+    optimizer = optim.AdamW(model.parameters(), lr = wandb.config['lr'],weight_decay=0.0001,betas=(0.9, 0.99))
 
     start_epoch = 1
 
@@ -63,7 +67,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
             print(f"Resuming training from epoch {start_epoch}")
-
+    
     # lr scheduler helps in stopping overfitting
     lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.5, total_iters=30)
 
@@ -76,20 +80,23 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
         for count, img_and_mask in enumerate(tqdm(train_dataloader, desc=f'Training Epoch {epoch}/{num_epochs}', unit='epoch')):
             image, mask = (img_and_mask["image"].to(device), img_and_mask["label"].to(device))
 
-            # print(image.shape) # torch.Size([1, 1, 128, 128, 128])
-            # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
-
             optimizer.zero_grad()
             output = model(image)
 
             if args.model == "axial_fusion_transformer":
                 output = output.unsqueeze(dim=0) # BECAUSE OUR MODEL ONLY WORKS FOR 1 BATCH SIZE AND WANT TO MAKE IT TO MORE BATCH SIZE SO.........
-            
-            # print(output.shape) # torch.Size([1, 5, 128, 128, 128])
 
             output = Activations(softmax=True, dim=1)(output) # Adding softmax before passing to loss function
 
-            train_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
+            # print(image.shape) # torch.Size([1, 1, 128, 128, 128])
+            # print(mask.shape) # torch.Size([1, 5, 128, 128, 128])
+            # print(mask.unique()) # tensor([0., 1.], device='cuda:0')
+            # print(output.shape) # torch.Size([1, 5, 128, 128, 128])
+
+            # print(output.max()) # tensor(0.9105, device='cuda:0', grad_fn=<AliasBackward0>)
+            # print(output.min()) # tensor(0.0061, device='cuda:0', grad_fn=<AliasBackward0>)
+
+            train_loss = loss_function(mask,output) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
             train_loss.backward()
             
             #Adding AsDiscrete before passing to DiceMetric
@@ -113,8 +120,8 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
             # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
             if count%10 ==0:
-                img_wandb_train = visualize_img_mask_output(image, mask, output, num_channels_before_training)
-                images_wandb_train.append(img_wandb_train)
+                train_img_list = visualize_img_mask_output(image, mask, output, num_channels_before_training)
+                images_wandb_train.extend(train_img_list)
 
         lr_scheduler.step()
 
@@ -145,7 +152,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
                 output = Activations(softmax=True, dim=1)(output) # Adding softmax before passing to loss function
                 
-                test_loss = loss_function(output, mask) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
+                test_loss = loss_function(mask,output) # DICE LOSS TAKES I/P in the form of Batch Channel HWD 
 
                 # print(dice_score_test) # metatensor([[0.9115]])
                 # print(output.shape) # torch.Size([5, 128, 128, 128])
@@ -169,8 +176,8 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 
                 # FOR LOGGIN THE IMAGES IN THE WANDB AND VISUALIZING RESULTS
                 if count%10 ==0:
-                    img_wandb_test = visualize_img_mask_output(image, mask, output, num_channels_before_training)
-                    images_wandb_test.append(img_wandb_test)
+                    test_img_list = visualize_img_mask_output(image, mask, output, num_channels_before_training)
+                    images_wandb_test.extend(test_img_list)
                 
             dice_score_test = dice_metric.aggregate().item()
             jaccard_score_test = iou_metric.aggregate().item()
@@ -213,7 +220,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
                    "image_wandb_train": [wandb.Image(img) for img in images_wandb_train],
                    "image_wandb_test": [wandb.Image(img) for img in images_wandb_test]})    
         
-        print(f'Epoch [{epoch + 1}/{num_epochs}], '
+        print(f'Epoch [{epoch}/{num_epochs}], '
             f'Train Loss: {np.array(train_loss_epoch).mean():.4f}, '
             f'Test Loss: {np.array(test_loss_epoch).mean():.4f}, '
 
@@ -230,7 +237,7 @@ def training_phase(train_dataloader, test_dataloader, num_classes,num_channels_b
 def parse_training_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("train_config")
-    parser.add_argument("val_config")
+    # parser.add_argument("val_config")
     parser.add_argument("--model")
     parser.add_argument("--dataset_to_use")
     parser.add_argument('--checkpoint')
@@ -259,11 +266,8 @@ if __name__ =='__main__':
     # print(args)
     
     train_config = args.train_config
-    val_config = args.val_config
+    # val_config = args.val_config
     dataset_to_use = args.dataset_to_use
-
-# check for voxel shape and load in csv format
-    # check_dataset(image_location, mask_location)
 
     # print(num_classes) #5
     batch_size = wandb.config['batch_size']
@@ -289,6 +293,8 @@ if __name__ =='__main__':
     else:
         print("Error in the dataloader phase....please choose a correct data to use")
     
-    
+    # check for voxel shape and load in csv format
+    # check_dataset(image_location, mask_location)
+
     model, num_epochs,optimizer, loss= training_phase(train_dataloader,test_dataloader, num_classes,num_channels_before_training,args)
 

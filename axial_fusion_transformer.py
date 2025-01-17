@@ -21,30 +21,6 @@ class conv_norm_relu(nn.Module):
         out = self.norm2(out)
         out = self.relu2(out)
         return out
-    
-class encoder_block(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv = conv_norm_relu(in_channels,out_channels)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        
-    def forward(self, x):
-        x = self.conv(x)
-        p = self.pool(x)
-        return p
-    
-
-class decoder_block(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv = conv_norm_relu(in_channels,out_channels)
-        self.up_sample = nn.Upsample(scale_factor=2)
-        
-    def forward(self, x, skip):
-        x = x + skip #torch.cat([x,skip],axis=1)
-        x = self.up_sample(x)
-        x = self.conv(x)
-        return x
 
 class PixelEmbedding(nn.Module):
     def __init__(self,in_channels,pixel_size,embedding_size):
@@ -54,7 +30,7 @@ class PixelEmbedding(nn.Module):
         super().__init__()
         self.inter_slice_projection = nn.Sequential(
             Rearrange('batch channel neighbor (h pix1) (w pix2) -> batch (h w) neighbor (pix1 pix2 channel)', pix1=pixel_size, pix2=pixel_size),
-            nn.Linear(pixel_size*pixel_size * in_channels, embedding_size)
+            nn.Linear(pixel_size * pixel_size * in_channels, embedding_size)
         )
     def forward(self,x):
 #         two embedding must be created because different embeddings are generated for intra slice attention and inter slice attention after passing to linear layer
@@ -189,9 +165,14 @@ class VitWithBottleneck(nn.Module):
         self.embedding2pixel = Embedding2Pixel(out_channels = channels,embedding_dim = embedding_dim, image_size=img_size)
         
     def forward(self, img):
+        # print('PRINT VIT WITH BOTTLENECT ----------------------------')
+        # print(print(img.shape))
         x = self.pixel_embedding(img)
-#         print(x.shape) #torch.Size([8, 16, 9, 128])
+        # print("value of x ")
+        # print(x.shape) #torch.Size([8, 16, 9, 128])
         b,_,n,_ = x.shape
+        # print(x.shape)
+        # print(self.pos_embedding[:, :(n)].shape)
         x += self.pos_embedding[:, :(n)]
 #         print(x.shape) #torch.Size([8, 16, 9, 128])     
         x = self.transformer(x)
@@ -200,7 +181,7 @@ class VitWithBottleneck(nn.Module):
 
 
 class axial_fusion_transformer(nn.Module):
-    def __init__(self, Na, Nf, num_classes,num_channels_before_training,init_features=8):
+    def __init__(self, Na, Nf, num_classes,num_channels_before_training,init_features=64):
         super().__init__()
         """ Encoder"""
 #         Number of blocks = 5
@@ -212,22 +193,32 @@ class axial_fusion_transformer(nn.Module):
 
         self.convert3d_image2_slices = convert3d_image2_slices
         self.append_neighboring_slices = append_neighboring_slices
-        
-        self.e1 = encoder_block(self.num_channels_before_training,self.features)
-        self.e2 = encoder_block(self.features,self.features*2)
-        self.e3 = encoder_block(self.features*2,self.features*4)
-        self.e4 = encoder_block(self.features*4,self.features*8)
-        self.e5 = encoder_block(self.features*8,self.features*16)
-        
+
+
+        self.max_pool2d = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.down_conv1 = conv_norm_relu(self.num_channels_before_training,self.features)
+        self.down_conv2 = conv_norm_relu(self.features,self.features*2)
+        self.down_conv3 = conv_norm_relu(self.features*2,self.features*4)
+        self.down_conv4 = conv_norm_relu(self.features*4,self.features*8)
+
+        """Bottleneck"""
+        self.down_conv5 = conv_norm_relu(self.features*8,self.features*16)
         """Transformer Block"""
+        # change img size for shape which is after encoder and embedding dimension as shape of batch i.e zth dimension term. which is 128 for 128,128,128 object and 32 for 32,32,32 object
         self.vit_with_bottleneck = VitWithBottleneck(img_size=4, patch_size=1,embedding_dim = 128,multihead_attention_heads = 8, num_layers = 5, channels = init_features*16, dropout = 0.)
         
         """ Decoder"""
-        self.d1 = decoder_block(self.features*16, self.features*8)
-        self.d2 = decoder_block(self.features*8, self.features*4)
-        self.d3 = decoder_block(self.features*4, self.features*2)
-        self.d4 = decoder_block(self.features*2, self.features)
-        self.d5 = decoder_block(self.features, self.num_classes)
+
+        self.up_transpose1 = nn.ConvTranspose2d(self.features*16, self.features*8, kernel_size=2, stride=2)
+        self.up_conv1 = conv_norm_relu(self.features*16, self.features*8)
+        self.up_transpose2 = nn.ConvTranspose2d(self.features*8, self.features*4, kernel_size=2, stride=2)
+        self.up_conv2 = conv_norm_relu(self.features*8, self.features*4)
+        self.up_transpose3 = nn.ConvTranspose2d(self.features*4, self.features*2, kernel_size=2, stride=2)
+        self.up_conv3 = conv_norm_relu(self.features*4, self.features*2)
+        self.up_transpose4 = nn.ConvTranspose2d(self.features*2, self.features, kernel_size=2, stride=2)
+        self.up_conv4 = conv_norm_relu(self.features*2, self.features)
+
+        self.out = nn.Conv2d(in_channels=self.features, out_channels=self.num_classes, kernel_size=1)
         self.softmax = nn.Softmax(dim=0)
         
     def forward(self, a_3d_image):
@@ -235,35 +226,71 @@ class axial_fusion_transformer(nn.Module):
 #         print(ct_scan_slices.shape) # torch.Size([128, 1, 128, 128])
         
         ct_scan_neighboring = self.append_neighboring_slices(self.Na, self.Nf, ct_scan_slices.shape[-1], ct_scan_slices)
-#         print(ct_scan_neighboring.shape) # torch.Size([128, 8, 1, 128, 128])
+        # print(ct_scan_neighboring.shape) # torch.Size([128, 9, 1, 128, 128])
+
+        # If you get error like this : ValueError: too many values to unpack (expected 5) please change batch_size
+        
         d, Na, c, h, w = ct_scan_neighboring.shape
         ct_scan_neighbouring = ct_scan_neighboring.reshape(-1,c,h,w)
-        p1 = self.e1(ct_scan_neighbouring)
-        p2 = self.e2(p1)
-        p3 = self.e3(p2)
-        p4 = self.e4(p3)
-        p5 = self.e5(p4)
-#         print(p5.shape) # torch.Size([1152, 128, 4, 4]) # 1152 = 128 x 9
-        p5_reshaped = p5.reshape(d, Na, p5.shape[1], p5.shape[2], p5.shape[3])
-#         print(p5_reshaped.shape) # torch.Size([128, 8, 128, 4, 4])
-        p5_permute = p5_reshaped.permute(0,2,1,3,4) # depth->batch_size, channel, Na, h,w     # depth has turned into batchsize and original batchsize is 1 
+        down_1 = self.down_conv1(ct_scan_neighbouring)
+        down_2 = self.max_pool2d(down_1)
+        down_3 = self.down_conv2(down_2) 
+        down_4 = self.max_pool2d(down_3)
+        down_5 = self.down_conv3(down_4)
+        down_6 = self.max_pool2d(down_5)
+        down_7 = self.down_conv4(down_6)
+        down_8 = self.max_pool2d(down_7)
+        down_9 = self.down_conv5(down_8) 
+
+        # print(down_2.shape) # torch.Size([1152, 64, 64, 64])                                                  
+        # print(down_9.shape) # torch.Size([1152, 1024, 8, 8])                  # 1152 = 128 x 9
+
+        down_9_reshaped = down_9.reshape(d, Na, down_9.shape[1], down_9.shape[2], down_9.shape[3])
+#         print(p5_reshaped.shape) # torch.Size([128, 9, 128, 4, 4])
+        down_9_permute = down_9_reshaped.permute(0,2,1,3,4) # depth->batch_size, channel, Na, h,w     # depth has turned into batchsize and original batchsize is 1 
+        
+        
+        # print(down_9_permute.shape)
+        
         """VIT Step"""
 #         print(p5_permute.shape) # torch.Size([128, 128, 9, 4, 4]) # depth or batchsize , channel , neighbour , height, width
-        after_axial_vit = self.vit_with_bottleneck(p5_permute) # depth or batchsize , channel , height , width
-#         print(after_axial_vit.shape) # torch.Size([128, 128, 4, 4])
+        after_axial_vit = self.vit_with_bottleneck(down_9_permute) # depth or batchsize , channel , height , width
+        # print(after_axial_vit.shape) # torch.Size([128, 1024, 8, 8])
 
         """ Decoder"""
 #         print(p5_permute.shape) # torch.Size([128, 128, 9, 4, 4])
-        d1 = self.d1(after_axial_vit, p5_permute[:,:,4,:,:]) # Skip Connections FROM  S5 
-#         print(d1.shape) # torch.Size([128, 64, 8, 8])
-#         print(p4.reshape(d,Na,p4.shape[1],p4.shape[2],p4.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:].shape) # torch.Size([128, 64, 8, 8])
-        d2 = self.d2(d1, p4.reshape(d,Na,p4.shape[1],p4.shape[2],p4.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]) # Skip Connections FROM S4
-        d3 = self.d3(d2, p3.reshape(d,Na,p3.shape[1],p3.shape[2],p3.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]) # Skip Connections FROM S3
-        d4 = self.d4(d3, p2.reshape(d,Na,p2.shape[1],p2.shape[2],p2.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]) # Skip Connections FROM S2
-        d5 = self.d5(d4, p1.reshape(d,Na,p1.shape[1],p1.shape[2],p1.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]) # Skip Connections FROM S1
 
-#         print(d5.shape) # torch.Size([128, 4, 128, 128])
-#         print(d5.permute(1,2,3,0).shape)  # torch.Size([4, 128, 128, 128])
-        d5_permute = d5.permute(1,2,3,0)
+#         print(p4.reshape(d,Na,p4.shape[1],p4.shape[2],p4.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:].shape) # torch.Size([128, 64, 8, 8])
+        up_1 = self.up_transpose1(after_axial_vit)
+        skip_1 = down_7.reshape(d,Na,down_7.shape[1],down_7.shape[2],down_7.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]
+        x = self.up_conv1(torch.cat([skip_1, up_1], 1))
+
+        up_2 = self.up_transpose2(x)
+        skip_2 = down_5.reshape(d,Na,down_5.shape[1],down_5.shape[2],down_5.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]
+        x = self.up_conv2(torch.cat([skip_2, up_2], 1))
+
+        up_3 = self.up_transpose3(x)
+        skip_3 = down_3.reshape(d,Na,down_3.shape[1],down_3.shape[2],down_3.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]
+        x = self.up_conv3(torch.cat([skip_3, up_3], 1))
+
+        up_4 = self.up_transpose4(x)
+        skip_4 = down_1.reshape(d,Na,down_1.shape[1],down_1.shape[2],down_1.shape[3]).permute(0,2,1,3,4)[:,:,4,:,:]
+        x = self.up_conv4(torch.cat([skip_4, up_4], 1))
+
+        out = self.out(x)
+
+        # print(out.shape)
+
+#         print(d4.shape) # torch.Size([128, 4, 128, 128])
+#         print(d4.permute(1,2,3,0).shape)  # torch.Size([4, 128, 128, 128])
+        out_permute = out.permute(1,2,3,0)
+        # print(out_permute.shape) # torch.Size([5, 128, 128, 128])
         # final_softmax = self.softmax(d5_permute)
-        return d5_permute #final_softmax
+        return out_permute #final_softmax
+
+
+if __name__ == "__main__": 
+    a = torch.rand((1, 1, 64,64,64))
+    axial = axial_fusion_transformer(Na=9,Nf=1, num_classes=5,num_channels_before_training=1)
+    y = axial(a) # torch.Size([5, 128, 128, 128])
+    print(y.shape)

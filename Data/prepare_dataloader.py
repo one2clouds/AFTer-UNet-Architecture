@@ -1,149 +1,88 @@
 from torch.utils.data import Dataset, DataLoader, random_split
-import nibabel as nib
-from sklearn.preprocessing import MinMaxScaler
+from monai.transforms import (ResizeWithPadOrCropd,Activations,
+                              Activationsd,AsDiscrete,AsDiscreted,
+                              Compose,Invertd,LoadImaged,
+                              NormalizeIntensityd,Orientationd,
+                              RandFlipd,RandScaleIntensityd,
+                              RandSpatialCropd,Spacingd,EnsureTyped,
+                              EnsureChannelFirstd,RandShiftIntensityd,
+                              Rand3DElasticd
+                              )
 import numpy as np 
 import torch
 import glob
 import os
-import torchio as tio 
-import monai 
+import monai
+from monai.utils import set_determinism 
+# from torchvision.transforms import ElasticTransform
 
-from monai.transforms import Compose, Spacing
+train_transform = Compose([
+        LoadImaged(keys=["image", "label"]),
+        EnsureChannelFirstd(keys=["image", "label"]),
+        EnsureTyped(keys=["image", "label"]),
+        Orientationd(keys=["image", "label"], axcodes="RAS"),
+        Spacingd(keys=["image", "label"],pixdim=(1.0, 1.0, 2.5),mode=("bilinear", "nearest"),),
+        ResizeWithPadOrCropd(keys=["image","label"],spatial_size=(64,64,64)),
 
+        # Adding ELASTIC 3D AS MENTIONED ON THE PAPER 
+        
+        Rand3DElasticd(keys=['image','label'],sigma_range=(5,7),magnitude_range=(50,15), prob=1,padding_mode='zeros',mode=['bilinear','nearest']),
+        # RandSpatialCropd(keys=["image", "label"], roi_size=[128, 128, 128], random_size=False),
+        # RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
+        # RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
+        # RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
+        NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
+        # RandScaleIntensityd(keys="image", factors=0.1, prob=1.0),
+        # RandShiftIntensityd(keys="image", offsets=0.1, prob=1.0),
+])
+val_transform = Compose(
+        [
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            EnsureTyped(keys=["image", "label"]),
+            Orientationd(keys=["image", "label"], axcodes="RAS"),
+            Spacingd(keys=["image", "label"],pixdim=(1.0, 1.0, 1.0),mode=("bilinear", "nearest"),),
 
+            ResizeWithPadOrCropd(keys=["image","label"],spatial_size=(128,128,128)),
+            
+            NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
+        ])
 
 class SegTHORDataset(Dataset):
-    def __init__(self, image_location, mask_location, num_classes):
-        self.image_list = sorted(glob.glob(image_location))
-        self.mask_list = sorted(glob.glob(mask_location))
-        self.scaler = MinMaxScaler()
-        self.transform = tio.CropOrPad((128,128,128))
+    def __init__(self, file_names, transform,num_classes, ):
+        self.file_names = file_names
+        self.transform = transform
         self.num_classes = num_classes
-        self.transforms = Compose([
-            Spacing(pixdim=(1.0,1.0,1.0), mode=('bilinear', 'nearest'))
-            ])
-        
+        self.as_discrete = AsDiscrete(to_onehot=self.num_classes)
+
+    def __getitem__(self, index):
+        file_names = self.file_names[index]
+        dataset = self.transform(file_names) 
+        dataset["label"] = self.as_discrete(dataset["label"])
+        return dataset
+    
     def __len__(self):
-        return 5 #len(self.image_list)
+        return len(self.file_names)
 
-    def __getitem__(self, idx):
+def get_from_loader_segthor(image_location, mask_location, batch_size, num_classes):
+    set_determinism(seed=12345)
+    images = sorted(glob.glob(image_location))
+    labels = sorted(glob.glob(mask_location))
 
-        image = nib.load(self.image_list[idx]).get_fdata()
-        image = self.scaler.fit_transform(image.reshape(-1, image.shape[-1])).reshape(image.shape)
-        image = torch.tensor(image, dtype=torch.float64)
+    data_dicts = [{"image": image_name, "label": label_name} for image_name, label_name in zip(images, labels)]
+    train_files, val_files = data_dicts[:-9], data_dicts[-9:]
 
-        # print(image.shape) # torch.Size([512, 512, 162])
-    
-        mask = nib.load(self.mask_list[idx]).get_fdata()
-        # print(torch.tensor(mask).unique()) # tensor([0., 1., 2., 3., 4.], dtype=torch.float64)
-        mask = torch.tensor(mask, dtype=torch.int64)
+    train_ds = SegTHORDataset(train_files, train_transform,num_classes)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
 
+    # TODO CHANGE TRAIN_TRANSFORM TO VAL_TRANSFORM 
+    val_ds = SegTHORDataset(val_files, train_transform, num_classes)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
 
-        mask = torch.nn.functional.one_hot(mask, self.num_classes)
-        # print(mask.shape) # torch.Size([512, 512, 179, 5])
-        mask = mask.permute(3,0,1,2)
+    return train_loader, val_loader, train_ds, val_ds
 
-        image = self.transforms(image)
-        mask = self.transforms(mask)
-
-        # print(image.shape) # torch.Size([512, 512, 162])
-        # print(mask.shape) # torch.Size([5, 512, 512, 162])
-
-        # print(image.unsqueeze(dim=0).shape)
-        # print(mask.shape)
-
-        image_and_mask = tio.Subject(
-                _3d_image = tio.ScalarImage(tensor=image.unsqueeze(dim=0)), # unsqueezing for 1 channel
-                _3d_mask = tio.LabelMap(tensor = mask))
-        
-        image_and_mask = self.transform(image_and_mask)
-        return image_and_mask
-
-class BraTSDataset(Dataset):
-    def __init__(self, t2_location, t1ce_location,flair_location,mask_location):
-        self.t2_list = sorted(glob.glob(t2_location))
-        self.t1ce_list = sorted(glob.glob(t1ce_location))
-        self.flair_list = sorted(glob.glob(flair_location))
-        self.mask_list = sorted(glob.glob(mask_location))
-        self.scaler = MinMaxScaler()
-        self.crop_or_pad = tio.CropOrPad((128, 128, 128))
-        
-    def __len__(self):
-        return len(self.t2_list)
-
-    def __getitem__(self, idx):
-        
-        temp_image_t2=nib.load(self.t2_list[idx]).get_fdata()
-        temp_image_t2=self.scaler.fit_transform(temp_image_t2.reshape(-1, temp_image_t2.shape[-1])).reshape(temp_image_t2.shape)
-    
-        temp_image_t1ce=nib.load(self.t1ce_list[idx]).get_fdata()
-        temp_image_t1ce=self.scaler.fit_transform(temp_image_t1ce.reshape(-1, temp_image_t1ce.shape[-1])).reshape(temp_image_t1ce.shape)
-    
-        temp_image_flair=nib.load(self.flair_list[idx]).get_fdata()
-        temp_image_flair=self.scaler.fit_transform(temp_image_flair.reshape(-1, temp_image_flair.shape[-1])).reshape(temp_image_flair.shape)
-            
-        temp_mask=nib.load(self.mask_list[idx]).get_fdata()
-
-        #     print(type(temp_mask))
-        temp_mask=temp_mask.astype(np.uint8)
-        temp_mask[temp_mask==4] = 3  #Reassign mask values 4 to 3
-        # print(np.unique(temp_mask))
-        
-        temp_combined_images = np.stack([temp_image_flair, temp_image_t1ce, temp_image_t2], axis=3)
-        
-        #Crop to a size to be divisible by 64 so we can later extract 64x64x64 patches. 
-        #cropping x, y, and z
-        # print(temp_mask.shape)
-        # print(np.unique(temp_mask, return_counts=True))
-        labels, unique_content_of_label_count = np.unique(temp_mask, return_counts=True)
-        # if [1- (0 i.e background / whole figure)] < 0.01 then tya aru segmentation 0.01 vanda kom xa
-        if True: #(1 - (unique_content_of_label_count[0]/unique_content_of_label_count.sum())) > 0.01:  #At least 1% useful volume with labels that are not 0
-            # print("Aru haru forground ma pani values xa and background i.e 0th label chai 0.99 vanda kom xa")
-
-            temp_mask= torch.nn.functional.one_hot(torch.from_numpy(temp_mask).to(torch.int64), num_classes=4)
-            temp_combined_images = torch.from_numpy(temp_combined_images)
-            
-            # Change the order from [batch_size, depth, width, height, channel] to [batch_size, channel, depth, width, height]
-            temp_combined_images = temp_combined_images.transpose(0, 3).transpose(2, 3).transpose(1, 2)
-            temp_mask = temp_mask.transpose(0, 3).transpose(2, 3).transpose(1, 2)
-            
-            temp_combined_images = temp_combined_images.float()
-            temp_mask = temp_mask.float()
-
-#             print(temp_combined_images.shape)
-#             print(temp_mask.shape)
-             #         print(temp_mask.shape)
-    #         print(temp_combined_images.shape)
-    #         print('BraTS2020_TrainingData/input_data_3channels/images/image_'+str(index)+'.pt')
-    #         print('BraTS2020_TrainingData/input_data_3channels/masks/mask_'+str(index)+'.pt')
-
-            # print("Background nai 0.99 vanda besi xa")            
-            temp_combined_images_and_mask = tio.Subject(
-                _3d_image = tio.ScalarImage(tensor=temp_combined_images),
-                _3d_mask = tio.LabelMap(tensor = temp_mask))
-            temp_combined_images_and_mask = self.crop_or_pad(temp_combined_images_and_mask)
-
-            return temp_combined_images_and_mask
-
-def get_from_loader_segthor(image_location, mask_location, num_classes, batch_size):
-    my_dataset = SegTHORDataset(image_location, mask_location, num_classes)
-
-    train_ratio = 0.75
-    test_ratio = 1.0 - train_ratio
-
-    num_samples = len(my_dataset)
-    num_train_samples = int(train_ratio * num_samples)
-    num_test_samples = num_samples - num_train_samples
-
-    train_dataset, test_dataset = random_split(my_dataset, [num_train_samples , num_test_samples])
-    
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    return train_dataloader, test_dataloader
-
-def get_from_loader_brats(t2_location,t1ce_location,flair_location,mask_location,num_classes, batch_size):
-    my_dataset = BraTSDataset(t2_location,t1ce_location,flair_location,mask_location)
+def get_from_loader_brats(t2_location,t1ce_location,flair_location,mask_location, batch_size):
+    my_dataset = SegTHORDataset(t2_location,t1ce_location,flair_location,mask_location)
 
     train_ratio = 0.9
     test_ratio = 1.0 - train_ratio
@@ -154,8 +93,17 @@ def get_from_loader_brats(t2_location,t1ce_location,flair_location,mask_location
 
     train_dataset, test_dataset = random_split(my_dataset, [num_train_samples , num_test_samples])
     
-    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
     return train_dataloader, test_dataloader
 
+
+if __name__ =="__main__":
+    image_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/P*.nii.gz'
+    mask_location = '/mnt/Enterprise2/shirshak/SegTHOR/train/P*/G*.nii.gz'
+
+    train_dataloader, test_dataloader, train_ds, val_ds = get_from_loader_segthor(image_location, mask_location, batch_size=1)
+
+    print(train_ds[0]["image"].shape)
+    print(train_ds[0]["label"].shape)
